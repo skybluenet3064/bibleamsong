@@ -33,5 +33,6 @@ echo "  -> gh-pages 정적 호스팅 배포 실행..."
 npx gh-pages -d dist
 
 echo ""
-echo "✨ 배포가 완료되었습니다!"
-echo "📌 GitHub 저장소의 Settings -> Pages 메뉴에서 'Deploy from a branch' (gh-pages) 또는 'GitHub Actions'가 활성화되어 있는지 확인해주세요."
+echo "✨ 배포가 성공적으로 완료되었습니다!"
+echo "👉 라이브 웹사이트: https://skybluenet3064.github.io/bibleamsong/"
+echo "   (약 30초~1분 후 브라우저에서 새로고침하시면 최신 변경사항이 반영됩니다)"
