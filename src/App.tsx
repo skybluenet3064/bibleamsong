@@ -61,7 +61,7 @@ export function App() {
   };
 
   // 암송 5단계 완료 & SRS 복습 피드백 적용
-  const handleCompleteMemorize = (result: 'again' | 'good' | 'easy') => {
+  const handleCompleteMemorize = (result: 'again' | 'good' | 'easy', userPrayer?: string) => {
     if (!memorizeTarget) return;
 
     let updated: MemorizeProgress;
@@ -83,6 +83,10 @@ export function App() {
       } else if (result === 'easy') {
         updated = calculateNextSRS(updated, 'easy');
       }
+    }
+
+    if (userPrayer !== undefined) {
+      updated.userPrayer = userPrayer;
     }
 
     const nextMap = updateProgressItem(updated);

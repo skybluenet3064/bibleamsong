@@ -1,22 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   X, Volume2, VolumeX, Eye, HelpCircle, CheckCircle2, ArrowRight, 
-  RotateCcw, Sparkles, BookMarked, Bookmark
+  RotateCcw, Sparkles, BookMarked, Bookmark, Heart, Copy, Save, Check, Plus
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { VerseItem, MemorizeProgress, TTSVoiceStyle } from '../types/bible';
 import { tts, VOICE_STYLE_PRESETS } from '../services/ttsService';
-import { loadSettings, saveSettings } from '../services/storage';
+import { loadSettings, saveSettings, saveVersePrayer, getVersePrayer } from '../services/storage';
 import { 
   toInitialConsonants, applyBlind, generateClozeQuiz, evaluateTyping, ClozeQuiz 
 } from '../services/hangulUtils';
 import { STAGE_LABELS } from '../services/srsEngine';
+import { generatePrayReading, PrayerTheme } from '../services/prayReadingService';
 
 interface VerseMemorizeModalProps {
   verseItem: VerseItem;
   existingProgress?: MemorizeProgress;
   onClose: () => void;
-  onComplete: (result: 'again' | 'good' | 'easy') => void;
+  onComplete: (result: 'again' | 'good' | 'easy', userPrayer?: string) => void;
   onToggleBookmark?: (id: string) => void;
 }
 
@@ -27,8 +28,8 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
   onComplete,
   onToggleBookmark
 }) => {
-  // 5단계: 1(통독), 2(가림판), 3(초성), 4(빈칸), 5(타이핑)
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  // 6단계 파이프라인: 1(통독), 2(가림판), 3(초성), 4(빈칸), 5(타이핑), 6(말씀 기도)
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [voiceStyle, setVoiceStyle] = useState<TTSVoiceStyle>(() => {
     return loadSettings().ttsVoiceStyle || 'reverent';
@@ -51,7 +52,17 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
   const [typingComplete, setTypingComplete] = useState(false);
   const typingInputRef = useRef<HTMLTextAreaElement>(null);
 
-  // 음성 낭독 토글
+  // Step 6 (말씀 기도 & 프레이리딩)
+  const verseId = `${verseItem.bookId}_${verseItem.chapter}_${verseItem.verse}`;
+  const prayReadingData = useMemo(() => generatePrayReading(verseItem), [verseItem]);
+  const [selectedPrayerTheme, setSelectedPrayerTheme] = useState<PrayerTheme>('praise');
+  const [userPrayerText, setUserPrayerText] = useState<string>(() => {
+    return existingProgress?.userPrayer || getVersePrayer(verseId)?.userPrayer || '';
+  });
+  const [prayerSavedToast, setPrayerSavedToast] = useState(false);
+  const [isPlayingPrayerAudio, setIsPlayingPrayerAudio] = useState(false);
+
+  // 음성 낭독 토글 (성경 구절)
   const handleToggleAudio = async () => {
     if (isPlayingAudio) {
       tts.stop();
@@ -112,7 +123,6 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
   const handleSelectWordChip = (word: string) => {
     if (!clozeQuiz) return;
     const currentCount = selectedWords.length;
-    // 정답 단어와 일치하는지 확인
     const expectedWord = clozeQuiz.items.filter(it => it.isBlank)[currentCount]?.word;
 
     if (expectedWord === word) {
@@ -120,49 +130,87 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
       setSelectedWords(nextWords);
       setClozeError(false);
 
-      // 모든 빈칸 맞춤
       if (nextWords.length === clozeQuiz.blankWords.length) {
         setTimeout(() => {
           setStep(5);
         }, 500);
       }
     } else {
-      // 오답 애니메이션 효과
       setClozeError(true);
-      setTimeout(() => setClozeError(false), 600);
+      setTimeout(() => setClozeError(false), 800);
     }
   };
 
-  // 타이핑 검사
-  const { diffs, accuracy, isComplete } = evaluateTyping(verseItem.text, typedInput);
+  // Step 5 타이핑 평가
+  const { accuracy, diffs } = evaluateTyping(typedInput, verseItem.text);
 
   useEffect(() => {
-    if (isComplete && !typingComplete) {
+    if (step === 5 && accuracy === 100 && !typingComplete) {
       setTypingComplete(true);
-      // 축하 폭죽 발사!
-      confetti({
-        particleCount: 100,
-        spread: 70,
-        origin: { y: 0.6 }
-      });
+      confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 } });
     }
-  }, [isComplete, typingComplete]);
+  }, [step, accuracy, typingComplete]);
 
-  // 가림판 텍스트 계산
-  const { maskedText } = applyBlind(verseItem.text, blindRatio);
-  const initialConsonantsText = toInitialConsonants(verseItem.text);
+  // ----------------------------------------------------
+  // Step 6: 말씀 기도 헬퍼
+  // ----------------------------------------------------
+  const currentRecommendedPrayer = useMemo(() => {
+    const opt = prayReadingData.options.find(o => o.theme === selectedPrayerTheme);
+    return opt ? opt.prayer : prayReadingData.defaultPrayer;
+  }, [prayReadingData, selectedPrayerTheme]);
 
-  const stepTitles = [
-    '1. 통독 & 묵상',
-    '2. 점진적 가림판',
-    '3. 초성 퀴즈',
-    '4. 빈칸 채우기',
-    '5. 전문 타이핑 검증'
-  ];
+  // 추천 기도를 사용자 기도창에 복사
+  const handleCopyRecommendedToUserPrayer = () => {
+    if (userPrayerText.trim()) {
+      setUserPrayerText(prev => prev + '\n\n' + currentRecommendedPrayer);
+    } else {
+      setUserPrayerText(currentRecommendedPrayer);
+    }
+  };
+
+  // 키워드 알약 클릭 시 추가
+  const handleAppendKeyword = (kw: string) => {
+    setUserPrayerText(prev => {
+      const cleanKw = kw.startsWith('+') ? kw.slice(1).trim() : kw;
+      if (!prev.trim()) return cleanKw;
+      return prev.endsWith(' ') || prev.endsWith('\n') ? prev + cleanKw : prev + ' ' + cleanKw;
+    });
+  };
+
+  // 기도문 TTS 음성 낭독 토글
+  const handleTogglePrayerAudio = async () => {
+    if (isPlayingPrayerAudio) {
+      tts.stop();
+      setIsPlayingPrayerAudio(false);
+    } else {
+      setIsPlayingPrayerAudio(true);
+      const textToRead = userPrayerText.trim() ? userPrayerText : currentRecommendedPrayer;
+      await tts.speak(textToRead, { style: voiceStyle });
+      setIsPlayingPrayerAudio(false);
+    }
+  };
+
+  // 기도만 단독 저장
+  const handleSavePrayerOnly = () => {
+    saveVersePrayer(verseId, userPrayerText, currentRecommendedPrayer);
+    setPrayerSavedToast(true);
+    setTimeout(() => setPrayerSavedToast(false), 2000);
+  };
+
+  // 최종 완료 및 SRS 복습 주기 평가
+  const handleFinishWithRating = (result: 'again' | 'good' | 'easy') => {
+    tts.stop();
+    saveVersePrayer(verseId, userPrayerText, currentRecommendedPrayer);
+    confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
+    onComplete(result, userPrayerText);
+  };
+
+  const stepTitles = ['1. 통독/묵상', '2. 가림판', '3. 초성', '4. 빈칸', '5. 타이핑', '6. 말씀 기도'];
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 740 }}>
+        
         {/* 상단 헤더: 구절 출처 및 닫기 */}
         <div style={{
           padding: '20px 24px 16px',
@@ -184,6 +232,12 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
               {existingProgress?.isBookmarked && (
                 <span className="badge badge-orange">취약 구절</span>
               )}
+              {(existingProgress?.userPrayer || userPrayerText) && (
+                <span className="badge badge-purple" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Heart size={12} />
+                  <span>말씀 기도 저장됨</span>
+                </span>
+              )}
             </div>
             {verseItem.outline && (
               <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
@@ -193,12 +247,12 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* 상시 낭독 듣기 버튼 */}
+            {/* 상시 구절 낭독 듣기 버튼 */}
             <button
               onClick={handleToggleAudio}
               className={`btn ${isPlayingAudio ? 'btn-gold' : 'btn-outline'}`}
               style={{ padding: '6px 10px', borderRadius: 'var(--radius-md)' }}
-              title={isPlayingAudio ? '낭독 중지' : `음성으로 듣기 (${VOICE_STYLE_PRESETS[voiceStyle]?.name})`}
+              title={isPlayingAudio ? '낭독 중지' : `구절 듣기 (${VOICE_STYLE_PRESETS[voiceStyle]?.name})`}
             >
               {isPlayingAudio ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
@@ -227,36 +281,41 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
           </div>
         </div>
 
-        {/* 5단계 진행도 탭 바 */}
+        {/* 6단계 진행도 탭 바 */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(5, 1fr)',
+          gridTemplateColumns: 'repeat(6, 1fr)',
           background: 'var(--bg-tertiary)',
           borderBottom: '1px solid var(--border-color)'
         }}>
-          {[1, 2, 3, 4, 5].map((s) => (
+          {[1, 2, 3, 4, 5, 6].map((s) => (
             <button
               key={s}
               onClick={() => setStep(s as any)}
               style={{
-                padding: '10px 4px',
+                padding: '10px 2px',
                 border: 'none',
                 background: step === s ? 'var(--bg-secondary)' : 'transparent',
                 color: step === s ? 'var(--text-gold)' : 'var(--text-muted)',
                 fontWeight: step === s ? 700 : 500,
-                fontSize: '0.78rem',
+                fontSize: '0.76rem',
                 borderBottom: step === s ? '2px solid var(--accent-gold)' : 'none',
                 cursor: 'pointer',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4
               }}
             >
-              {stepTitles[s - 1]}
+              {s === 6 && <Heart size={12} color={step === 6 ? 'var(--accent-gold)' : 'currentColor'} />}
+              <span>{stepTitles[s - 1]}</span>
             </button>
           ))}
         </div>
 
         {/* 단계별 본문 영역 */}
-        <div style={{ padding: '28px 24px', minHeight: 340, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <div style={{ padding: '24px 24px', minHeight: 340, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           
           {/* STEP 1: 통독 & 묵상 */}
           {step === 1 && (
@@ -296,7 +355,6 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
                     <span>{isPlayingAudio ? '낭독 중지' : '음성으로 듣기'}</span>
                   </button>
 
-                  {/* 음성 스타일 즉시 변경 드롭다운 */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>목소리:</span>
                     <select
@@ -322,7 +380,6 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
                   </div>
                 </div>
 
-                {/* 낭독 진행 상태 표시 */}
                 {isPlayingAudio && (
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-gold)', display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{
@@ -330,15 +387,23 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
                       width: 8,
                       height: 8,
                       borderRadius: '50%',
-                      background: 'var(--accent-gold)',
-                      animation: 'pulse 1.5s infinite ease-in-out'
+                      background: 'var(--accent-gold)'
                     }}></span>
                     {VOICE_STYLE_PRESETS[voiceStyle]?.desc || '경건한 낭독 진행 중'}
                   </span>
                 )}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  onClick={() => setStep(6)}
+                  className="btn btn-outline"
+                  style={{ fontSize: '0.85rem' }}
+                >
+                  <Heart size={14} color="var(--accent-gold)" />
+                  <span>말씀 기도로 바로 건너뛰기</span>
+                </button>
+
                 <button
                   onClick={() => setStep(2)}
                   className="btn btn-gold"
@@ -356,40 +421,25 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
             <div>
               <div style={{
                 display: 'flex',
-                alignItems: 'center',
                 justifyContent: 'space-between',
+                alignItems: 'center',
                 marginBottom: 16
               }}>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {[0.3, 0.6, 1.0].map((ratio) => (
+                <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+                  가림판 비율: <strong style={{ color: 'var(--text-gold)' }}>{Math.round(blindRatio * 100)}%</strong>
+                </span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {[0.3, 0.5, 0.8].map((ratio) => (
                     <button
                       key={ratio}
                       onClick={() => setBlindRatio(ratio)}
-                      className="btn"
-                      style={{
-                        padding: '6px 12px',
-                        fontSize: '0.82rem',
-                        background: blindRatio === ratio ? 'var(--accent-gold)' : 'var(--bg-tertiary)',
-                        color: blindRatio === ratio ? '#121008' : 'var(--text-primary)',
-                        border: '1px solid var(--border-color)'
-                      }}
+                      className={`btn ${blindRatio === ratio ? 'btn-gold' : 'btn-outline'}`}
+                      style={{ padding: '4px 10px', fontSize: '0.78rem' }}
                     >
-                      {Math.round(ratio * 100)}% 가림
+                      {Math.round(ratio * 100)}%
                     </button>
                   ))}
                 </div>
-
-                <button
-                  onMouseDown={() => setIsPeeking(true)}
-                  onMouseUp={() => setIsPeeking(false)}
-                  onTouchStart={() => setIsPeeking(true)}
-                  onTouchEnd={() => setIsPeeking(false)}
-                  className="btn btn-outline"
-                  style={{ padding: '6px 12px', fontSize: '0.82rem' }}
-                >
-                  <Eye size={16} />
-                  <span>누르고 있으면 엿보기</span>
-                </button>
               </div>
 
               <div style={{
@@ -397,27 +447,42 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
                 padding: 24,
                 borderRadius: 'var(--radius-lg)',
                 border: '1px solid var(--border-color)',
-                marginBottom: 20
+                marginBottom: 20,
+                minHeight: 120,
+                display: 'flex',
+                alignItems: 'center'
               }}>
-                <p className="verse-text-serif" style={{ fontSize: '1.35rem', letterSpacing: '0.05em' }}>
-                  {isPeeking ? verseItem.text : maskedText}
+                <p className="verse-text-serif" style={{ fontSize: '1.35rem', color: 'var(--text-primary)', lineHeight: 1.8 }}>
+                  {isPeeking ? verseItem.text : applyBlind(verseItem.text, blindRatio).maskedText}
                 </p>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  onMouseDown={() => setIsPeeking(true)}
+                  onMouseUp={() => setIsPeeking(false)}
+                  onTouchStart={() => setIsPeeking(true)}
+                  onTouchEnd={() => setIsPeeking(false)}
+                  className="btn btn-outline"
+                  style={{ fontSize: '0.85rem' }}
+                >
+                  <Eye size={16} />
+                  <span>누르고 있으면 원문 보기</span>
+                </button>
+
                 <button onClick={() => setStep(3)} className="btn btn-gold">
-                  <span>다음: 초성 퀴즈</span>
+                  <span>다음: 초성 연상</span>
                   <ArrowRight size={18} />
                 </button>
               </div>
             </div>
           )}
 
-          {/* STEP 3: 초성 퀴즈 */}
+          {/* STEP 3: 초성 연상 */}
           {step === 3 && (
             <div>
-              <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
-                초성만 보고 소리 내어 구절 전체를 암송해 보세요:
+              <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
+                첫 글자 초성을 보고 머릿속으로 전체 말씀을 온전히 인출해 보세요:
               </p>
 
               <div style={{
@@ -427,13 +492,12 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
                 border: '1px solid var(--border-color)',
                 marginBottom: 20
               }}>
-                <p className="verse-text-serif" style={{ fontSize: '1.35rem', color: 'var(--text-gold)', letterSpacing: '0.08em' }}>
-                  {initialConsonantsText}
+                <p className="verse-text-serif" style={{ fontSize: '1.35rem', color: 'var(--text-gold)', letterSpacing: '0.08em', lineHeight: 1.8 }}>
+                  {toInitialConsonants(verseItem.text)}
                 </p>
 
                 {showAnswerInStep3 && (
                   <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px dashed var(--border-color)' }}>
-                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 4 }}>원문 확인:</p>
                     <p className="verse-text-serif" style={{ fontSize: '1.15rem', color: 'var(--text-primary)' }}>
                       {verseItem.text}
                     </p>
@@ -441,80 +505,74 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
                 )}
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <button
                   onClick={() => setShowAnswerInStep3(!showAnswerInStep3)}
                   className="btn btn-outline"
                 >
-                  <HelpCircle size={18} />
-                  <span>{showAnswerInStep3 ? '정답 가리기' : '정답 확인하기'}</span>
+                  <HelpCircle size={16} />
+                  <span>{showAnswerInStep3 ? '정답 숨기기' : '원문 확인하기'}</span>
                 </button>
 
                 <button onClick={() => setStep(4)} className="btn btn-gold">
-                  <span>다음: 빈칸 채우기</span>
+                  <span>다음: 빈칸 완성</span>
                   <ArrowRight size={18} />
                 </button>
               </div>
             </div>
           )}
 
-          {/* STEP 4: 빈칸 채우기 */}
+          {/* STEP 4: 빈칸 완성 */}
           {step === 4 && clozeQuiz && (
             <div>
-              <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
-                아래 단어 조각들을 순서대로 클릭하여 빈칸을 완성하세요:
+              <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
+                아래 단어들을 순서대로 터치하여 빈칸을 완성하세요:
               </p>
 
-              {/* 빈칸이 포함된 문장 디스플레이 */}
               <div style={{
                 background: 'var(--bg-tertiary)',
                 padding: 24,
                 borderRadius: 'var(--radius-lg)',
-                border: `1px solid ${clozeError ? 'var(--accent-danger)' : 'var(--border-color)'}`,
+                border: `1px solid ${clozeError ? '#ef4444' : 'var(--border-color)'}`,
                 marginBottom: 20,
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 8,
-                alignItems: 'center',
-                transition: 'border-color 0.2s'
+                lineHeight: 2
               }}>
-                {(() => {
-                  let filledCount = 0;
-                  return clozeQuiz.items.map((it, idx) => {
-                    if (!it.isBlank) {
-                      return <span key={idx} style={{ fontSize: '1.25rem' }}>{it.word}</span>;
-                    }
-                    const filledWord = selectedWords[filledCount];
-                    filledCount++;
-                    return (
-                      <span
-                        key={idx}
-                        style={{
-                          fontSize: '1.15rem',
-                          fontWeight: 700,
-                          padding: '2px 10px',
-                          borderRadius: 'var(--radius-sm)',
-                          background: filledWord ? 'rgba(16, 185, 129, 0.2)' : 'rgba(212, 175, 55, 0.15)',
-                          color: filledWord ? '#10b981' : 'var(--text-gold)',
-                          border: `1px dashed ${filledWord ? '#10b981' : 'var(--accent-gold)'}`,
-                          minWidth: 48,
-                          textAlign: 'center'
-                        }}
-                      >
-                        {filledWord || '____'}
-                      </span>
-                    );
-                  });
-                })()}
+                {clozeQuiz.items.map((item, idx) => {
+                  if (!item.isBlank) {
+                    return <span key={idx} style={{ fontSize: '1.25rem' }}>{item.word} </span>;
+                  }
+                  const filledIndex = clozeQuiz.items.filter(it => it.isBlank).indexOf(item);
+                  const isFilled = selectedWords.length > filledIndex;
+                  return (
+                    <span
+                      key={idx}
+                      style={{
+                        display: 'inline-block',
+                        minWidth: 50,
+                        padding: '2px 8px',
+                        margin: '0 4px',
+                        borderBottom: '2px solid var(--accent-gold)',
+                        background: isFilled ? 'rgba(212, 175, 55, 0.15)' : 'transparent',
+                        color: isFilled ? 'var(--text-gold)' : 'transparent',
+                        fontWeight: 700,
+                        fontSize: '1.25rem',
+                        textAlign: 'center'
+                      }}
+                    >
+                      {isFilled ? selectedWords[filledIndex] : '___'}
+                    </span>
+                  );
+                })}
               </div>
 
-              {/* 단어 칩 선택 목록 */}
+              {/* 단어 선택 칩 */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
-                {clozeQuiz.blankWords.map((item, idx) => {
-                  const isUsed = selectedWords.includes(item.word);
+                {clozeQuiz.blankWords.map((item) => {
+                  const isUsed = selectedWords.filter(w => w === item.word).length > 
+                    clozeQuiz.blankWords.filter(sc => sc.word === item.word && sc.id < item.id).length;
                   return (
                     <button
-                      key={idx}
+                      key={item.id}
                       disabled={isUsed}
                       onClick={() => handleSelectWordChip(item.word)}
                       className="btn"
@@ -604,58 +662,76 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
                   fontFamily: 'inherit',
                   resize: 'none',
                   outline: 'none',
-                  marginBottom: 20
+                  marginBottom: 16
                 }}
               />
 
-              {/* 완료 시 7차 복습 피드백 버튼 */}
+              {/* 완료 시 피드백 & 6단계 말씀 기도 안내 */}
               {typingComplete ? (
                 <div style={{
-                  padding: 16,
+                  padding: 18,
                   borderRadius: 'var(--radius-lg)',
-                  background: 'rgba(16, 185, 129, 0.1)',
+                  background: 'rgba(16, 185, 129, 0.08)',
                   border: '1px solid rgba(16, 185, 129, 0.3)',
                   textAlign: 'center'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 12, color: '#10b981' }}>
-                    <Sparkles size={22} />
-                    <strong style={{ fontSize: '1.1rem' }}>완벽하게 암송하셨습니다!</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8, color: '#10b981' }}>
+                    <Sparkles size={20} />
+                    <strong style={{ fontSize: '1.05rem' }}>완벽하게 암송하셨습니다!</strong>
                   </div>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
-                    이 구절을 기억하는 난이도를 선택하면 7차 복습 주기에 따라 다음 복습일이 자동 설정됩니다:
+                  <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginBottom: 14 }}>
+                    암송한 말씀을 살아있는 기도로 바꾸어 읽고 영 안에 깊이 새겨보세요:
                   </p>
 
-                  <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-                    <button
-                      onClick={() => onComplete('again')}
-                      className="btn btn-outline"
-                      style={{ borderColor: '#ef4444', color: '#ef4444' }}
-                    >
-                      <RotateCcw size={16} />
-                      <span>다시 (내일 복습)</span>
-                    </button>
+                  <button
+                    onClick={() => setStep(6)}
+                    className="btn btn-gold"
+                    style={{ padding: '11px 24px', fontSize: '0.96rem', width: '100%', marginBottom: 14 }}
+                  >
+                    <Heart size={18} />
+                    <span>🕊️ 6단계: 말씀 기도로 영 안에 새기기 (추천)</span>
+                    <ArrowRight size={18} />
+                  </button>
 
-                    <button
-                      onClick={() => onComplete('good')}
-                      className="btn btn-gold"
-                    >
-                      <CheckCircle2 size={16} />
-                      <span>기억남 (Good)</span>
-                    </button>
-
-                    <button
-                      onClick={() => onComplete('easy')}
-                      className="btn btn-primary"
-                    >
-                      <Sparkles size={16} />
-                      <span>매우 쉬움 (Easy)</span>
-                    </button>
+                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 12, marginTop: 4 }}>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+                      또는 기도를 건너뛰고 바로 복습 주기 평가로 완료:
+                    </p>
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                      <button
+                        onClick={() => handleFinishWithRating('again')}
+                        className="btn btn-outline"
+                        style={{ borderColor: '#ef4444', color: '#ef4444', fontSize: '0.8rem', padding: '6px 12px' }}
+                      >
+                        <RotateCcw size={14} />
+                        <span>다시 (내일)</span>
+                      </button>
+                      <button
+                        onClick={() => handleFinishWithRating('good')}
+                        className="btn btn-gold"
+                        style={{ fontSize: '0.8rem', padding: '6px 14px' }}
+                      >
+                        <CheckCircle2 size={14} />
+                        <span>기억남 (Good)</span>
+                      </button>
+                      <button
+                        onClick={() => handleFinishWithRating('easy')}
+                        className="btn btn-primary"
+                        style={{ fontSize: '0.8rem', padding: '6px 14px' }}
+                      >
+                        <Sparkles size={14} />
+                        <span>매우 쉬움</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <button
-                    onClick={() => setTypedInput(verseItem.text)}
+                    onClick={() => {
+                      setTypedInput(verseItem.text);
+                      setTypingComplete(true);
+                    }}
                     className="btn btn-outline"
                     style={{ fontSize: '0.82rem' }}
                   >
@@ -663,7 +739,7 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
                   </button>
 
                   <button
-                    disabled={typedInput.length < 5}
+                    disabled={typedInput.length < 3}
                     onClick={() => {
                       if (accuracy >= 80) setTypingComplete(true);
                     }}
@@ -673,6 +749,260 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
                   </button>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* STEP 6: 말씀 기도 (Pray-Reading) & 감상 나눔 */}
+          {step === 6 && (
+            <div>
+              {/* 안내 배너 */}
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.12), rgba(212, 175, 55, 0.03))',
+                border: '1px solid rgba(212, 175, 55, 0.3)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '14px 18px',
+                marginBottom: 18,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 12
+              }}>
+                <Heart size={22} color="var(--accent-gold)" style={{ flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <h4 style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-gold)', marginBottom: 2 }}>
+                    말씀 기도로 영 안에 새기기 (Pray-Reading)
+                  </h4>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                    암송한 구절을 살아있는 기도로 바꾸어 읽으며 주님과 영 안에서 호흡하세요. 
+                    추천 기도를 소리 내어 읽거나, 자신이 느낀 고백과 기도를 덧붙여 마무리할 수 있습니다.
+                  </p>
+                </div>
+              </div>
+
+              {/* 본문 짧은 인용 박스 */}
+              <div style={{
+                background: 'var(--bg-tertiary)',
+                padding: '12px 16px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-color)',
+                marginBottom: 16
+              }}>
+                <span className="badge badge-gold" style={{ fontSize: '0.72rem', marginBottom: 4, display: 'inline-block' }}>
+                  {verseItem.bookName} {verseItem.chapter}:{verseItem.verse}
+                </span>
+                <p className="verse-text-serif" style={{ fontSize: '1.05rem', color: 'var(--text-primary)', margin: 0 }}>
+                  "{verseItem.text}"
+                </p>
+              </div>
+
+              {/* 추천 말씀 기도 (3가지 테마 탭) */}
+              <div style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '16px',
+                marginBottom: 16
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Sparkles size={16} color="var(--accent-gold)" />
+                    <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-gold)' }}>
+                      추천 말씀 기도
+                    </span>
+                  </div>
+
+                  {/* 3가지 기도 테마 버튼 */}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {prayReadingData.options.map((opt) => (
+                      <button
+                        key={opt.theme}
+                        onClick={() => setSelectedPrayerTheme(opt.theme)}
+                        className="btn"
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '0.76rem',
+                          borderRadius: 'var(--radius-md)',
+                          background: selectedPrayerTheme === opt.theme ? 'var(--accent-gold)' : 'var(--bg-card)',
+                          color: selectedPrayerTheme === opt.theme ? '#000' : 'var(--text-secondary)',
+                          border: `1px solid ${selectedPrayerTheme === opt.theme ? 'var(--accent-gold)' : 'var(--border-color)'}`,
+                          fontWeight: selectedPrayerTheme === opt.theme ? 700 : 500
+                        }}
+                      >
+                        {opt.icon} {opt.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 추천 기도문 본문 카드 */}
+                <div style={{
+                  background: 'var(--bg-card)',
+                  padding: '14px 16px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid rgba(212, 175, 55, 0.25)',
+                  fontSize: '0.96rem',
+                  lineHeight: 1.7,
+                  color: 'var(--text-primary)',
+                  fontStyle: 'normal',
+                  marginBottom: 10
+                }}>
+                  {currentRecommendedPrayer}
+                </div>
+
+                {/* 추천 기도 액션 버튼 (음성 함께 읽기 & 내 기도창으로 복사) */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                  <button
+                    onClick={handleTogglePrayerAudio}
+                    className={`btn ${isPlayingPrayerAudio ? 'btn-gold' : 'btn-outline'}`}
+                    style={{ padding: '6px 14px', fontSize: '0.82rem' }}
+                  >
+                    {isPlayingPrayerAudio ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                    <span>{isPlayingPrayerAudio ? '기도 낭독 정지' : '거룩한 음성으로 함께 기도하기'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleCopyRecommendedToUserPrayer}
+                    className="btn btn-outline"
+                    style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                    title="추천 기도문을 내 기도 입력창으로 복사하여 추가 작성"
+                  >
+                    <Copy size={14} />
+                    <span>추천 기도를 내 기도창에 복사</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 말씀 기도 키워드 알약 (Pills) */}
+              {prayReadingData.keywords.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
+                    기도 키워드 (터치하면 기도문에 추가됩니다):
+                  </span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {prayReadingData.keywords.map((kw, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleAppendKeyword(kw)}
+                        className="btn btn-outline"
+                        style={{
+                          padding: '3px 10px',
+                          fontSize: '0.76rem',
+                          borderRadius: '14px',
+                          background: 'var(--bg-card)'
+                        }}
+                      >
+                        <Plus size={12} color="var(--accent-gold)" />
+                        <span>{kw}</span>
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => handleAppendKeyword('오 주 예수님!')}
+                      className="btn btn-outline"
+                      style={{ padding: '3px 10px', fontSize: '0.76rem', borderRadius: '14px' }}
+                    >
+                      <Plus size={12} color="var(--accent-gold)" />
+                      <span>오 주 예수님!</span>
+                    </button>
+                    <button
+                      onClick={() => handleAppendKeyword('아멘!')}
+                      className="btn btn-outline"
+                      style={{ padding: '3px 10px', fontSize: '0.76rem', borderRadius: '14px' }}
+                    >
+                      <Plus size={12} color="var(--accent-gold)" />
+                      <span>아멘!</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 나의 말씀 기도 및 감상 작성창 */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    나의 말씀 기도 & 감상 고백 (선택사항)
+                  </label>
+                  {prayerSavedToast && (
+                    <span style={{ fontSize: '0.78rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Check size={14} />
+                      <span>성공적으로 저장되었습니다!</span>
+                    </span>
+                  )}
+                </div>
+
+                <textarea
+                  value={userPrayerText}
+                  onChange={(e) => setUserPrayerText(e.target.value)}
+                  placeholder="이 말씀을 묵상하며 마음에 와닿은 감동, 회개, 감사, 그리고 삶의 적용 기도를 자유롭게 작성해 보세요 (추후 복습 시에도 유지됩니다)..."
+                  rows={4}
+                  style={{
+                    width: '100%',
+                    padding: 12,
+                    fontSize: '0.94rem',
+                    lineHeight: 1.6,
+                    borderRadius: 'var(--radius-md)',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-primary)',
+                    fontFamily: 'inherit',
+                    resize: 'vertical',
+                    outline: 'none',
+                    marginBottom: 8
+                  }}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <button
+                    onClick={handleSavePrayerOnly}
+                    className="btn btn-outline"
+                    style={{ padding: '5px 12px', fontSize: '0.8rem' }}
+                  >
+                    <Save size={14} />
+                    <span>나의 기도만 임시 저장</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 7차 복습 주기 평가 & 암송 완료 */}
+              <div style={{
+                padding: '16px',
+                borderRadius: 'var(--radius-lg)',
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-color)',
+                textAlign: 'center'
+              }}>
+                <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
+                  오늘의 암송과 말씀 기도를 마치며 기억 난이도를 선택해 주세요:
+                </p>
+
+                <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+                  <button
+                    onClick={() => handleFinishWithRating('again')}
+                    className="btn btn-outline"
+                    style={{ borderColor: '#ef4444', color: '#ef4444', padding: '9px 18px', fontSize: '0.88rem' }}
+                  >
+                    <RotateCcw size={16} />
+                    <span>다시 (내일 복습)</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleFinishWithRating('good')}
+                    className="btn btn-gold"
+                    style={{ padding: '9px 24px', fontSize: '0.92rem' }}
+                  >
+                    <CheckCircle2 size={16} />
+                    <span>기억남 (Good)</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleFinishWithRating('easy')}
+                    className="btn btn-primary"
+                    style={{ padding: '9px 24px', fontSize: '0.92rem' }}
+                  >
+                    <Sparkles size={16} />
+                    <span>매우 쉬움 (Easy)</span>
+                  </button>
+                </div>
+              </div>
+
             </div>
           )}
 

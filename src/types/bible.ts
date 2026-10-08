@@ -54,6 +54,8 @@ export interface MemorizeProgress {
   reviewCount: number;     // 누적 복습 횟수
   mistakeCount: number;    // 누적 오답 횟수
   isBookmarked?: boolean;  // 취약/관심 구절 북마크
+  userPrayer?: string;     // 사용자가 작성/추가한 말씀 기도 및 묵상 감상
+  recommendedPrayer?: string; // 시스템이 추천한 말씀 기도문
   history: {
     date: string;
     result: 'again' | 'good' | 'easy';

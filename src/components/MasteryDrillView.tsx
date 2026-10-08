@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Zap, Trophy, RotateCcw, CheckCircle2, XCircle, ArrowRight, 
   HelpCircle, Volume2, Sparkles, BookOpen, Layers, Flame, RefreshCw,
-  Headphones, Edit3, Check, AlertTriangle
+  Headphones, Edit3, Check, AlertTriangle, Heart
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { VerseItem, MemorizeProgress, DrillMode, DrillLevel, DrillItem } from '../types/bible';
@@ -10,6 +10,7 @@ import { DEFAULT_KEY_VERSES } from '../data/defaultKeyVerses';
 import { BIBLE_BOOKS } from '../data/bibleBooks';
 import { tts } from '../services/ttsService';
 import { toInitialConsonants, generateClozeQuiz, evaluateTyping, ClozeQuiz } from '../services/hangulUtils';
+import { PrayReadingModal } from './PrayReadingModal';
 
 interface MasteryDrillViewProps {
   progressMap: Record<string, MemorizeProgress>;
@@ -27,6 +28,7 @@ export const MasteryDrillView: React.FC<MasteryDrillViewProps> = ({
   const [level, setLevel] = useState<DrillLevel>(2);
   const [selectedSet, setSelectedSet] = useState<'my_progress' | 'nt_keys' | 'ot_keys' | 'all_keys'>('nt_keys');
   const [isPlaying, setIsPlaying] = useState(false);
+  const [selectedPrayerVerse, setSelectedPrayerVerse] = useState<VerseItem | null>(null);
 
   // 훈련 진행 큐
   const [queue, setQueue] = useState<DrillItem[]>([]);
@@ -647,6 +649,17 @@ export const MasteryDrillView: React.FC<MasteryDrillViewProps> = ({
                     >
                       <Volume2 size={14} />
                       <span>낭독 힌트</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPrayerVerse(currentItem.verse)}
+                      className="btn btn-outline"
+                      style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                      title="이 구절을 말씀 기도로 누리기"
+                    >
+                      <Heart size={14} color="var(--accent-gold)" />
+                      <span>말씀 기도</span>
                     </button>
                   </div>
                 </div>
@@ -1424,6 +1437,40 @@ export const MasteryDrillView: React.FC<MasteryDrillViewProps> = ({
             </div>
           </div>
 
+          {/* 마스터한 구절 말씀 기도로 마무리 영역 */}
+          {passedItems.length > 0 && (
+            <div style={{
+              marginTop: 24,
+              marginBottom: 32,
+              textAlign: 'left',
+              background: 'var(--bg-secondary)',
+              padding: '20px 24px',
+              borderRadius: 'var(--radius-lg)',
+              border: '1px solid var(--border-color)'
+            }}>
+              <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-gold)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Heart size={20} color="var(--accent-gold)" />
+                <span>오늘 마스터한 말씀 기도로 영 안에 새기기 (Pray-Reading)</span>
+              </h4>
+              <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginBottom: 14 }}>
+                암송을 마친 구절을 기도로 바꾸어 읽으면 진리가 내적 생명으로 영원히 각인됩니다. 아래 구절을 클릭하여 추천 기도를 읽거나 나만의 기도를 작성해 보세요:
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {passedItems.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => setSelectedPrayerVerse(item.verse)}
+                    className="btn btn-outline"
+                    style={{ fontSize: '0.84rem', padding: '8px 16px' }}
+                  >
+                    <Heart size={14} color="var(--accent-gold)" />
+                    <span>{item.verse.bookName} {item.verse.chapter}:{item.verse.verse} 말씀 기도하기</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
             <button onClick={() => setIsPlaying(false)} className="btn btn-gold">
               다른 모드로 계속 훈련하기
@@ -1433,6 +1480,14 @@ export const MasteryDrillView: React.FC<MasteryDrillViewProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {/* 말씀 기도 (Pray-Reading) 모달 */}
+      {selectedPrayerVerse && (
+        <PrayReadingModal
+          verseItem={selectedPrayerVerse}
+          onClose={() => setSelectedPrayerVerse(null)}
+        />
       )}
 
     </div>

@@ -67,6 +67,47 @@ export function toggleBookmarkItem(id: string): Record<string, MemorizeProgress>
 }
 
 /**
+ * 구절 말씀 기도 및 사용자 묵상 노트 저장
+ */
+export function saveVersePrayer(verseId: string, userPrayer: string, recommendedPrayer?: string): Record<string, MemorizeProgress> {
+  const current = loadProgressMap();
+  if (current[verseId]) {
+    current[verseId] = {
+      ...current[verseId],
+      userPrayer,
+      recommendedPrayer: recommendedPrayer || current[verseId].recommendedPrayer
+    };
+    saveProgressMap(current);
+  } else {
+    try {
+      localStorage.setItem(`bible_amsong_prayer_${verseId}`, JSON.stringify({ userPrayer, recommendedPrayer }));
+    } catch (e) {
+      // ignore
+    }
+  }
+  return current;
+}
+
+/**
+ * 저장된 말씀 기도 로드
+ */
+export function getVersePrayer(verseId: string): { userPrayer: string; recommendedPrayer?: string } | null {
+  const current = loadProgressMap();
+  if (current[verseId]?.userPrayer) {
+    return {
+      userPrayer: current[verseId].userPrayer || '',
+      recommendedPrayer: current[verseId].recommendedPrayer
+    };
+  }
+  try {
+    const raw = localStorage.getItem(`bible_amsong_prayer_${verseId}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
  * 일일 활동 기록 로드
  */
 export function loadActivityHistory(): DailyActivity {

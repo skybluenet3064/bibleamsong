@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, BookOpen, Loader2, Sparkles, ArrowRight, Search, CheckCircle2 } from 'lucide-react';
+import { X, BookOpen, Loader2, Sparkles, ArrowRight, Search, CheckCircle2, Heart } from 'lucide-react';
 import { BibleBook, VerseItem, MemorizeProgress } from '../types/bible';
 import { fetchChapterVerses } from '../services/rvApi';
 import { getDefaultKeyVerse } from '../data/defaultKeyVerses';
@@ -312,11 +312,33 @@ export const VersePickerModal: React.FC<VersePickerModalProps> = ({
                             암송 중 (Stage {progress.stage})
                           </span>
                         )}
+
+                        {progress?.userPrayer && (
+                          <span className="badge badge-purple" style={{ fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <Heart size={11} />
+                            말씀 기도
+                          </span>
+                        )}
                       </div>
 
                       <p className="verse-text-serif" style={{ fontSize: '1.08rem', lineHeight: 1.8, color: 'var(--text-primary)' }}>
                         {v.text}
                       </p>
+
+                      {progress?.userPrayer && (
+                        <div style={{
+                          marginTop: 8,
+                          padding: '6px 12px',
+                          background: 'rgba(168, 85, 247, 0.08)',
+                          borderLeft: '3px solid #a855f7',
+                          borderRadius: '0 4px 4px 0',
+                          fontSize: '0.82rem',
+                          color: 'var(--text-secondary)'
+                        }}>
+                          <strong style={{ color: '#a855f7', marginRight: 6 }}>🕊️ 나의 말씀 기도:</strong>
+                          {progress.userPrayer}
+                        </div>
+                      )}
                     </div>
 
                     <button
