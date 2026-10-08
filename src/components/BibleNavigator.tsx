@@ -324,48 +324,39 @@ export const BibleNavigator: React.FC<BibleNavigatorProps> = ({
                           }}
                         >
                           <button
-                            onClick={() => {
-                              const keyVerse = getDefaultKeyVerse(book.id, ch);
-                              const existing = Object.values(progressMap).find(
-                                (p) => p.bookId === book.id && p.chapter === ch
-                              );
-                              onStartMemorize(existing || keyVerse, existing);
-                            }}
+                            onClick={() => onOpenVersePicker(book, ch)}
                             className="btn"
                             style={{
                               width: '100%',
-                              padding: '10px 4px',
+                              padding: '11px 4px',
                               background: bg,
-                              border: `1px solid ${border}`,
+                              border: `1.5px solid ${border}`,
                               color: textColor,
                               borderRadius: 'var(--radius-md)',
-                              fontWeight: 700,
-                              fontSize: '0.88rem'
-                            }}
-                            title={`${book.name} ${ch}장 대표 구절 암송하기`}
-                          >
-                            {ch}장
-                          </button>
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onOpenVersePicker(book, ch);
-                            }}
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              color: 'var(--text-muted)',
-                              fontSize: '0.65rem',
+                              fontWeight: 800,
+                              fontSize: '0.9rem',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: 3,
                               cursor: 'pointer',
+                              boxShadow: '0 2px 4px rgba(0,0,0,0.06)',
+                              transition: 'all 0.15s'
+                            }}
+                            title={`${book.name} ${ch}장 구절 목록 열기 및 암송할 절 선택`}
+                          >
+                            <span>{ch}장</span>
+                            <span style={{
+                              fontSize: '0.67rem',
+                              fontWeight: 600,
+                              opacity: 0.9,
                               display: 'flex',
                               alignItems: 'center',
                               gap: 2
-                            }}
-                            title="이 장의 전체 구절 보기 / 변경"
-                          >
-                            <ExternalLink size={10} />
-                            구절선택
+                            }}>
+                              <BookOpen size={10} />
+                              {status === 'mastered' ? '완료' : status === 'learning' ? '학습중' : status === 'due' ? '복습' : '구절선택'}
+                            </span>
                           </button>
                         </div>
                       );

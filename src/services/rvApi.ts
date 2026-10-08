@@ -8,29 +8,32 @@ const chapterCache = new Map<string, VerseItem[]>();
  * rv.or.kr HTML 텍스트에서 개요 및 절 목록 파싱
  */
 export function parseRecoveryHtml(html: string, book: BibleBook, chapter: number): VerseItem[] {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, 'text/html');
-
-  // 개요 목록 추출
-  const outlines: string[] = [];
-  doc.querySelectorAll('.outline').forEach((el) => {
-    const txt = el.textContent?.trim();
-    if (txt) outlines.push(txt);
-  });
-  const mainOutline = outlines.join(' / ');
-
   const verses: VerseItem[] = [];
-  const verseNodes = doc.querySelectorAll('.verse');
+  let mainOutline = '';
 
-  verseNodes.forEach((node) => {
-    const numEl = node.querySelector('.num');
-    const textEl = node.querySelector('.text');
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
 
-    if (numEl && textEl) {
-      const verseNumStr = numEl.textContent?.trim();
-      const verseText = textEl.textContent?.trim();
+    // 개요 목록 추출
+    const outlines: string[] = [];
+    doc.querySelectorAll('.outline').forEach((el) => {
+      const txt = el.textContent?.trim();
+      if (txt) outlines.push(txt);
+    });
+    mainOutline = outlines.join(' / ');
 
-      if (verseNumStr && verseText) {
+    const verseNodes = doc.querySelectorAll('.verse');
+    verseNodes.forEach((node) => {
+      const numEl = node.querySelector('.num');
+      const textEl = node.querySelector('.text');
+      if (!textEl) return;
+
+      const verseNumStr = numEl?.textContent?.trim() || '';
+      const verseText = textEl.textContent?.replace(/\s+/g, ' ').trim() || '';
+      if (!verseText) return;
+
+      if (verseNumStr) {
         const verseNum = parseInt(verseNumStr, 10);
         if (!isNaN(verseNum)) {
           verses.push({
@@ -42,15 +45,46 @@ export function parseRecoveryHtml(html: string, book: BibleBook, chapter: number
             outline: mainOutline || undefined
           });
         }
+      } else if (verses.length > 0) {
+        // 개요 등으로 분절된 구절 내용 합치기 (예: 1:2상, 1:2하)
+        verses[verses.length - 1].text += ' ' + verseText;
+      }
+    });
+  } catch (e) {
+    console.warn('DOMParser failed, falling back to regex parser', e);
+  }
+
+  // Regex 폴백: DOMParser에서 추출된 결과가 없을 때 보완
+  if (verses.length === 0) {
+    const reg = /<div class=["']verse["']>\s*<div class=["']num["'][^>]*>(.*?)<\/div>\s*<div class=["']text["']>(.*?)<\/div>\s*<\/div>/gi;
+    let m;
+    while ((m = reg.exec(html)) !== null) {
+      const numStr = m[1].replace(/<[^>]*>/g, '').trim();
+      const text = m[2].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+      if (numStr) {
+        const verseNum = parseInt(numStr, 10);
+        if (!isNaN(verseNum)) {
+          verses.push({
+            bookId: book.id,
+            bookName: book.name,
+            chapter,
+            verse: verseNum,
+            text,
+            outline: mainOutline || undefined
+          });
+        }
+      } else if (verses.length > 0) {
+        verses[verses.length - 1].text += ' ' + text;
       }
     }
-  });
+  }
 
   return verses;
 }
 
 /**
- * 특정 권/장의 전체 구절 가져오기 (캐시 -> 프록시 API)
+ * 특정 권/장의 전체 구절 가져오기 (캐시 -> rv.or.kr 직접 호출 / 프록시)
  */
 export async function fetchChapterVerses(bookId: number, chapter: number): Promise<VerseItem[]> {
   const cacheKey = `${bookId}_${chapter}`;
@@ -67,39 +101,48 @@ export async function fetchChapterVerses(bookId: number, chapter: number): Promi
     const cached = localStorage.getItem(localKey);
     if (cached) {
       const parsed: VerseItem[] = JSON.parse(cached);
-      chapterCache.set(cacheKey, parsed);
-      return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        chapterCache.set(cacheKey, parsed);
+        return parsed;
+      }
     }
   } catch (e) {
     // ignore
   }
 
-  // 개발 환경에서는 Vite proxy, 배포 환경에서는 public CORS proxy 활용
+  // rv.or.kr은 Access-Control-Allow-Origin: * 헤더를 전송하므로 브라우저에서 직접 fetch 가능
   const rvPath = `read_recovery.php?bibleVer=${book.rvVer}&bibleSelOp=${book.rvBookId}&bibChapt=${chapter}`;
-  const isDev = import.meta.env.DEV;
-  const url = isDev 
-    ? `/rv-api/${rvPath}` 
-    : `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://www.rv.or.kr/${rvPath}`)}`;
+  const directUrl = `https://www.rv.or.kr/${rvPath}`;
+  const proxyUrl = `/rv-api/${rvPath}`;
 
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const html = await res.text();
-    const verses = parseRecoveryHtml(html, book, chapter);
+  // 직접 호출 및 개발 프록시 순차 시도
+  const candidateUrls = [directUrl, proxyUrl];
 
-    if (verses.length > 0) {
-      chapterCache.set(cacheKey, verses);
-      try {
-        localStorage.setItem(localKey, JSON.stringify(verses));
-      } catch (e) {
-        // quota exceeded 등의 경우 캐시 생략
+  for (const url of candidateUrls) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+
+      if (res.ok) {
+        const html = await res.text();
+        const verses = parseRecoveryHtml(html, book, chapter);
+        if (verses.length > 0) {
+          chapterCache.set(cacheKey, verses);
+          try {
+            localStorage.setItem(localKey, JSON.stringify(verses));
+          } catch (e) {
+            // quota exceeded 시 캐시 건너뜀
+          }
+          return verses;
+        }
       }
-      return verses;
+    } catch (err) {
+      // 다음 URL 후보 시도
     }
-  } catch (err) {
-    console.warn(`Failed to fetch verses from rv.or.kr for ${book.name} ${chapter}장, falling back to local dataset.`, err);
   }
 
-  // fallback: 최소 기본 구절 생성
+  // 오프라인 / 네트워크 오류 폴백: 로컬 대표 요절 제공
   return [];
 }
