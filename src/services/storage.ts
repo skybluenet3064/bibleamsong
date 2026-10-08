@@ -11,7 +11,11 @@ const STORAGE_KEYS = {
 const DEFAULT_SETTINGS: UserSettings = {
   dailyGoal: 3,
   theme: 'dark',
-  ttsSpeed: 0.95,
+  ttsSpeed: 0.84,             // 거룩하고 차분한 기본 낭독 속도
+  ttsPitch: 0.88,             // 깊고 묵직한 중저음 거룩한 톤
+  ttsVoiceStyle: 'reverent',  // 거룩하고 경건한 목소리 기본값
+  ttsVoiceURI: '',
+  ttsAddBreaths: true,        // 문장/쉼표 간 묵상 호흡 적용
   autoPlayAudio: true
 };
 

@@ -55,6 +55,13 @@ export const MasteryDrillView: React.FC<MasteryDrillViewProps> = ({
 
   const typingInputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
 
+  // 화면 벗어날 때 TTS 중단
+  useEffect(() => {
+    return () => {
+      tts.stop();
+    };
+  }, []);
+
   // 훈련 세트 후보 목록
   const getCandidateVerses = (): VerseItem[] => {
     const allKeyVerses = Object.values(DEFAULT_KEY_VERSES);

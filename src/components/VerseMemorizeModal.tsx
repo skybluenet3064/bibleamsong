@@ -4,8 +4,9 @@ import {
   RotateCcw, Sparkles, BookMarked, Bookmark
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { VerseItem, MemorizeProgress } from '../types/bible';
-import { tts } from '../services/ttsService';
+import { VerseItem, MemorizeProgress, TTSVoiceStyle } from '../types/bible';
+import { tts, VOICE_STYLE_PRESETS } from '../services/ttsService';
+import { loadSettings, saveSettings } from '../services/storage';
 import { 
   toInitialConsonants, applyBlind, generateClozeQuiz, evaluateTyping, ClozeQuiz 
 } from '../services/hangulUtils';
@@ -29,6 +30,9 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
   // 5단계: 1(통독), 2(가림판), 3(초성), 4(빈칸), 5(타이핑)
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [voiceStyle, setVoiceStyle] = useState<TTSVoiceStyle>(() => {
+    return loadSettings().ttsVoiceStyle || 'reverent';
+  });
 
   // Step 2 (가림판)
   const [blindRatio, setBlindRatio] = useState<number>(0.5);
@@ -47,15 +51,36 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
   const [typingComplete, setTypingComplete] = useState(false);
   const typingInputRef = useRef<HTMLTextAreaElement>(null);
 
-  // 음성 낭독
+  // 음성 낭독 토글
   const handleToggleAudio = async () => {
     if (isPlayingAudio) {
       tts.stop();
       setIsPlayingAudio(false);
     } else {
       setIsPlayingAudio(true);
-      await tts.speak(verseItem.text);
+      await tts.speak(verseItem.text, { style: voiceStyle });
       setIsPlayingAudio(false);
+    }
+  };
+
+  // 낭독 스타일 변경
+  const handleChangeVoiceStyle = (newStyle: TTSVoiceStyle) => {
+    setVoiceStyle(newStyle);
+    const currSettings = loadSettings();
+    const preset = VOICE_STYLE_PRESETS[newStyle];
+    saveSettings({
+      ...currSettings,
+      ttsVoiceStyle: newStyle,
+      ttsPitch: newStyle === 'custom' ? currSettings.ttsPitch : preset.pitch,
+      ttsSpeed: newStyle === 'custom' ? currSettings.ttsSpeed : preset.rate
+    });
+
+    if (isPlayingAudio) {
+      tts.stop();
+      setIsPlayingAudio(true);
+      tts.speak(verseItem.text, { style: newStyle }).finally(() => {
+        setIsPlayingAudio(false);
+      });
     }
   };
 
@@ -168,6 +193,16 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* 상시 낭독 듣기 버튼 */}
+            <button
+              onClick={handleToggleAudio}
+              className={`btn ${isPlayingAudio ? 'btn-gold' : 'btn-outline'}`}
+              style={{ padding: '6px 10px', borderRadius: 'var(--radius-md)' }}
+              title={isPlayingAudio ? '낭독 중지' : `음성으로 듣기 (${VOICE_STYLE_PRESETS[voiceStyle]?.name})`}
+            >
+              {isPlayingAudio ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
+
             {onToggleBookmark && existingProgress && (
               <button
                 onClick={() => onToggleBookmark(existingProgress.id)}
@@ -238,18 +273,76 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
                 </p>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-                <button
-                  onClick={handleToggleAudio}
-                  className={`btn ${isPlayingAudio ? 'btn-gold' : 'btn-outline'}`}
-                >
-                  {isPlayingAudio ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                  <span>{isPlayingAudio ? '낭독 중지' : '음성으로 듣기 (TTS)'}</span>
-                </button>
+              {/* 거룩하고 신실한 음성 낭독 컨트롤 바 */}
+              <div style={{
+                background: 'var(--bg-secondary)',
+                padding: '14px 18px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-color)',
+                marginBottom: 20,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 12
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                  <button
+                    onClick={handleToggleAudio}
+                    className={`btn ${isPlayingAudio ? 'btn-gold' : 'btn-outline'}`}
+                    style={{ padding: '8px 16px', fontSize: '0.88rem' }}
+                  >
+                    {isPlayingAudio ? <VolumeX size={17} /> : <Volume2 size={17} />}
+                    <span>{isPlayingAudio ? '낭독 중지' : '음성으로 듣기'}</span>
+                  </button>
 
+                  {/* 음성 스타일 즉시 변경 드롭다운 */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>목소리:</span>
+                    <select
+                      value={voiceStyle}
+                      onChange={(e) => handleChangeVoiceStyle(e.target.value as TTSVoiceStyle)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-card)',
+                        color: 'var(--text-gold)',
+                        fontWeight: 600,
+                        fontSize: '0.84rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {Object.values(VOICE_STYLE_PRESETS).map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.icon} {p.name} ({p.tag})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* 낭독 진행 상태 표시 */}
+                {isPlayingAudio && (
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-gold)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{
+                      display: 'inline-block',
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: 'var(--accent-gold)',
+                      animation: 'pulse 1.5s infinite ease-in-out'
+                    }}></span>
+                    {VOICE_STYLE_PRESETS[voiceStyle]?.desc || '경건한 낭독 진행 중'}
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button
                   onClick={() => setStep(2)}
                   className="btn btn-gold"
+                  style={{ padding: '9px 20px', fontSize: '0.9rem' }}
                 >
                   <span>다음: 가림판 훈련</span>
                   <ArrowRight size={18} />

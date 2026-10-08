@@ -66,10 +66,16 @@ export interface DailyActivity {
   [dateString: string]: number; // 날짜별 암송/복습 횟수 (예: "2026-10-04": 5)
 }
 
+export type TTSVoiceStyle = 'reverent' | 'faithful' | 'solemn' | 'peaceful' | 'clear' | 'custom';
+
 export interface UserSettings {
   dailyGoal: number;          // 하루 목표 구절 수 (기본: 3)
   theme: 'dark' | 'light' | 'sepia';
-  ttsSpeed: number;           // TTS 재생 속도 (0.8 ~ 1.2)
+  ttsSpeed: number;           // TTS 재생 속도 (0.6 ~ 1.3)
+  ttsPitch: number;           // 음높이 (0.6 ~ 1.4, 거룩한 중저음: 0.85~0.88)
+  ttsVoiceStyle: TTSVoiceStyle; // 거룩한 낭독 스타일 프리셋
+  ttsVoiceURI: string;        // 지정 성우 Voice URI
+  ttsAddBreaths: boolean;     // 문장 간 묵상 호흡(쉼) 적용 여부
   autoPlayAudio: boolean;     // 학습 시작 시 자동 낭독 여부
 }
 
