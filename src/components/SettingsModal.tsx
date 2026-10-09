@@ -92,7 +92,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } else {
       setIsPlayingPreview(true);
       await tts.preview(
-        settings.ttsVoiceStyle || 'reverent',
+        settings.ttsVoiceStyle || 'natural',
         settings.ttsVoiceURI,
         settings.ttsSpeed,
         settings.ttsPitch
@@ -160,7 +160,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Volume2 size={18} color="var(--accent-gold)" />
                 <h4 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-gold)' }}>
-                  성경 음성 낭독(TTS) 및 목소리 스타일
+                  자연스러운 사람 목소리 낭독(TTS) 설정
                 </h4>
               </div>
               <button
@@ -174,7 +174,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '-4px 0 4px', lineHeight: 1.5 }}>
-              딱딱하고 교과서적인 기본 기계음 대신, 깊은 중저음과 경건한 호흡으로 성경 말씀을 선포하는 음성 스타일을 제공합니다.
+              교과서나 기계음처럼 딱딱하게 뚝뚝 끊기는 부자연스러움을 없애고, 사람이 옆에서 편안하게 들려주듯 부드럽게 낭독합니다. 중요한 성경 핵심 단어는 자연스럽게 강조됩니다.
             </p>
 
             {/* 음성 스타일 프리셋 선택 카드 그리드 */}
@@ -184,7 +184,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </label>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
                 {(Object.values(VOICE_STYLE_PRESETS)).map((p) => {
-                  const isSelected = (settings.ttsVoiceStyle || 'reverent') === p.id;
+                  const isSelected = (settings.ttsVoiceStyle || 'natural') === p.id;
                   return (
                     <button
                       key={p.id}

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { VerseItem, MemorizeProgress, TTSVoiceStyle } from '../types/bible';
-import { tts, VOICE_STYLE_PRESETS } from '../services/ttsService';
+import { tts, VOICE_STYLE_PRESETS, CORE_BIBLICAL_KEYWORDS } from '../services/ttsService';
 import { loadSettings, saveSettings, saveVersePrayer, getVersePrayer } from '../services/storage';
 import { 
   toInitialConsonants, applyBlind, generateClozeQuiz, evaluateTyping, ClozeQuiz 
@@ -32,7 +32,7 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [voiceStyle, setVoiceStyle] = useState<TTSVoiceStyle>(() => {
-    return loadSettings().ttsVoiceStyle || 'reverent';
+    return loadSettings().ttsVoiceStyle || 'natural';
   });
 
   // Step 2 (가림판)
@@ -327,9 +327,36 @@ export const VerseMemorizeModal: React.FC<VerseMemorizeModalProps> = ({
                 border: '1px solid var(--border-color)',
                 marginBottom: 20
               }}>
-                <p className="verse-text-serif" style={{ fontSize: '1.35rem', color: 'var(--text-primary)' }}>
-                  {verseItem.text}
+                <p className="verse-text-serif" style={{ fontSize: '1.35rem', color: 'var(--text-primary)', lineHeight: 1.75 }}>
+                  {(() => {
+                    const regex = new RegExp(`(${CORE_BIBLICAL_KEYWORDS.join('|')})`, 'g');
+                    const parts = verseItem.text.split(regex);
+                    return parts.map((part, idx) => {
+                      if (CORE_BIBLICAL_KEYWORDS.includes(part)) {
+                        return (
+                          <span 
+                            key={idx} 
+                            style={{ 
+                              color: 'var(--text-gold)', 
+                              fontWeight: 700,
+                              textDecoration: 'underline',
+                              textDecorationColor: 'rgba(212, 175, 55, 0.45)',
+                              textUnderlineOffset: '4px'
+                            }}
+                            title="낭독시 자연스럽게 강조되는 성경 핵심 단어"
+                          >
+                            {part}
+                          </span>
+                        );
+                      }
+                      return <span key={idx}>{part}</span>;
+                    });
+                  })()}
                 </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 12 }}>
+                  <Sparkles size={13} color="var(--accent-gold)" />
+                  <span>황금빛 단어: 사람이 옆에서 이야기하듯 끊김 없이 매끄럽게 흐르며 핵심 단어를 자연스럽게 강조합니다.</span>
+                </div>
               </div>
 
               {/* 거룩하고 신실한 음성 낭독 컨트롤 바 */}

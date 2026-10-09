@@ -68,7 +68,16 @@ export interface DailyActivity {
   [dateString: string]: number; // 날짜별 암송/복습 횟수 (예: "2026-10-04": 5)
 }
 
-export type TTSVoiceStyle = 'reverent' | 'faithful' | 'solemn' | 'peaceful' | 'clear' | 'custom';
+export type TTSVoiceStyle = 
+  | 'natural'    // 사람이 곁에서 들려주는 자연스러운 목소리 (기본 추천, 끊김 없음)
+  | 'emphasis'   // 중요 단어 강조 낭독 (핵심 진리 강조)
+  | 'warm'       // 따뜻하고 다정한 목소리 (온화한 낭독)
+  | 'reverent'   // 거룩하고 경건한 목소리 (차분한 묵상)
+  | 'faithful'   // 신실하고 온화한 목소리
+  | 'solemn'     // 웅장한 선포의 목소리
+  | 'peaceful'   // 기도와 묵상의 목소리
+  | 'clear'      // 맑고 또박또박한 목소리
+  | 'custom';    // 사용자 맞춤 설정
 
 export interface UserSettings {
   dailyGoal: number;          // 하루 목표 구절 수 (기본: 3)
